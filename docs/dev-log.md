@@ -117,3 +117,12 @@
 | 진행 | 다음·홀드 미리보기 캔버스 패널 추가 | index.html, style.css, script.js |
 | 진행 | 조작법·기능 목록·Pages URL README 갱신 | README.md |
 | 진행 | Subagent 리뷰 개선사항 commit push 완료 | git |
+
+### 2026-06-16 — [S5] 레벨 시스템
+
+| 구분 | 내용 | 관련 파일/명령 |
+|------|------|----------------|
+| 진행 | 레벨별 누적 목표 점수(레벨×500), 레벨업 시 낙하 속도 증가 | script.js |
+| 진행 | 레벨·목표 점수 UI 패널, 레벨업 피드백·플래시 애니메이션 | index.html, style.css |
+| 리뷰 | 8개 Subagent 병렬 리뷰 — P0 없음, UX·타이머 시점 개선 반영 | 전체 |
+| 진행 | settlePiece 후 타이머 재시작, 레벨업 메시지 레벨 패널로 분리 | script.js |

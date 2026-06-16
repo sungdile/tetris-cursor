@@ -126,6 +126,42 @@ body {
   color: #58a6ff;
 }
 
+.level-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #3fb950;
+}
+
+.level-value.level-up-flash {
+  animation: level-flash 0.6s ease;
+}
+
+@keyframes level-flash {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); color: #56d364; }
+}
+
+.level-feedback {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #56d364;
+  min-height: 1.2em;
+}
+
+.level-target-label {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #8b949e;
+}
+
+.level-target {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: #c9d1d9;
+  line-height: 1.4;
+}
+
 .status-message {
   margin-top: 8px;
   font-size: 0.85rem;
@@ -261,5 +297,9 @@ button:disabled {
 @media (prefers-reduced-motion: reduce) {
   button {
     transition: none;
+  }
+
+  .level-value.level-up-flash {
+    animation: none;
   }
 }

@@ -6,7 +6,11 @@ const ROWS = 20;
 const BLOCK_SIZE = 30;
 const PREVIEW_BLOCK_SIZE = 20;
 const PREVIEW_COLS = 4;
-const DROP_INTERVAL_MS = 500;
+const BASE_DROP_INTERVAL_MS = 500;
+const DROP_INTERVAL_DECREASE_PER_LEVEL = 35;
+const MIN_DROP_INTERVAL_MS = 80;
+const LEVEL_TARGET_BASE = 500;
+const MAX_LEVEL = 20;
 
 const SCORE_SINGLE = 100;
 const SCORE_DOUBLE = 300;
@@ -58,15 +62,19 @@ const nextCtx = nextCanvas ? nextCanvas.getContext("2d") : null;
 const holdCanvas = document.getElementById("holdCanvas");
 const holdCtx = holdCanvas ? holdCanvas.getContext("2d") : null;
 const scoreElement = document.getElementById("score");
+const levelElement = document.getElementById("level");
+const levelTargetElement = document.getElementById("levelTarget");
 const statusElement = document.getElementById("status");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 const boardArea = document.querySelector(".board-area");
 const boardOverlay = document.getElementById("boardOverlay");
+const levelFeedbackElement = document.getElementById("levelFeedback");
 
 if (
   !canvas || !ctx || !nextCanvas || !nextCtx || !holdCanvas || !holdCtx ||
-  !scoreElement || !statusElement || !startBtn || !restartBtn || !boardArea
+  !scoreElement || !levelElement || !levelTargetElement || !levelFeedbackElement ||
+  !statusElement || !startBtn || !restartBtn || !boardArea
 ) {
   console.error("필수 DOM 요소를 찾을 수 없습니다. index.html 구조를 확인하세요.");
   throw new Error("Tetris: required DOM elements missing");
@@ -86,10 +94,12 @@ let holdPieceType = null;
 let canHold = true;
 let pieceBag = [];
 let score = 0;
+let level = 1;
 let dropTimer = null;
 let isPlaying = false;
 let isPaused = false;
 let isGameOver = false;
+let levelFeedbackTimer = null;
 
 function createEmptyBoard() {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
@@ -235,13 +245,42 @@ function clearLines() {
   }
 
   if (clearedCount > 0) {
-    addLineScore(clearedCount);
+    return addLineScore(clearedCount);
   }
+
+  return false;
+}
+
+function getCumulativeTargetForLevel(targetLevel) {
+  return targetLevel * LEVEL_TARGET_BASE;
+}
+
+function getDropIntervalForLevel(currentLevel) {
+  return Math.max(
+    MIN_DROP_INTERVAL_MS,
+    BASE_DROP_INTERVAL_MS - (currentLevel - 1) * DROP_INTERVAL_DECREASE_PER_LEVEL
+  );
 }
 
 function addScore(points) {
   score += points;
   updateScoreDisplay();
+  return checkLevelUp();
+}
+
+function checkLevelUp() {
+  const previousLevel = level;
+
+  while (level < MAX_LEVEL && score >= getCumulativeTargetForLevel(level)) {
+    level++;
+  }
+
+  if (level > previousLevel) {
+    showLevelFeedback(previousLevel, level);
+  }
+
+  updateLevelDisplay();
+  return level > previousLevel;
 }
 
 function addLineScore(lineCount) {
@@ -252,11 +291,13 @@ function addLineScore(lineCount) {
     4: SCORE_TETRIS,
   };
 
-  addScore(lineScores[lineCount] || 0);
+  return addScore(lineScores[lineCount] || 0);
 }
 
 function addDropScore(points) {
-  addScore(points);
+  if (addScore(points) && isPlaying && !isPaused && !isGameOver) {
+    startDropTimer();
+  }
 }
 
 function canPlayerControl() {
@@ -265,6 +306,39 @@ function canPlayerControl() {
 
 function updateScoreDisplay() {
   scoreElement.textContent = String(score);
+}
+
+function updateLevelDisplay() {
+  const nextTarget = getCumulativeTargetForLevel(level);
+  levelElement.textContent = String(level);
+
+  if (level >= MAX_LEVEL) {
+    levelTargetElement.textContent = "최고 레벨 달성!";
+    return;
+  }
+
+  levelTargetElement.textContent = `누적 ${score} / ${nextTarget}점`;
+}
+
+function showLevelFeedback(fromLevel, toLevel) {
+  const message = toLevel - fromLevel > 1
+    ? `레벨 ${fromLevel} → ${toLevel}!`
+    : `레벨 ${toLevel} 달성!`;
+
+  levelFeedbackElement.textContent = message;
+  levelFeedbackElement.hidden = false;
+  levelElement.classList.add("level-up-flash");
+
+  if (levelFeedbackTimer !== null) {
+    clearTimeout(levelFeedbackTimer);
+  }
+
+  levelFeedbackTimer = setTimeout(() => {
+    levelFeedbackElement.hidden = true;
+    levelFeedbackElement.textContent = "";
+    levelElement.classList.remove("level-up-flash");
+    levelFeedbackTimer = null;
+  }, 2500);
 }
 
 function updateStatus(message) {
@@ -375,8 +449,16 @@ function holdCurrentPiece() {
 
 function settlePiece() {
   lockPiece();
-  clearLines();
-  spawnPiece();
+  const leveledUp = clearLines();
+
+  if (!spawnPiece()) {
+    return;
+  }
+
+  if (leveledUp && isPlaying && !isPaused && !isGameOver) {
+    startDropTimer();
+  }
+
   draw();
 }
 
@@ -394,7 +476,7 @@ function handleAutoDrop() {
 
 function startDropTimer() {
   stopDropTimer();
-  dropTimer = setInterval(handleAutoDrop, DROP_INTERVAL_MS);
+  dropTimer = setInterval(handleAutoDrop, getDropIntervalForLevel(level));
 }
 
 function stopDropTimer() {
@@ -525,10 +607,19 @@ function resetGameState() {
   canHold = true;
   pieceBag = [];
   score = 0;
+  level = 1;
   isPlaying = false;
   isPaused = false;
   isGameOver = false;
+  if (levelFeedbackTimer !== null) {
+    clearTimeout(levelFeedbackTimer);
+    levelFeedbackTimer = null;
+  }
+  levelFeedbackElement.hidden = true;
+  levelFeedbackElement.textContent = "";
+  levelElement.classList.remove("level-up-flash");
   updateScoreDisplay();
+  updateLevelDisplay();
   updateStatus("시작 버튼을 눌러 플레이하세요");
   showBoardOverlay("시작 버튼을 누르세요");
   boardArea.classList.remove("paused");

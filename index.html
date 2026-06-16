@@ -26,6 +26,14 @@
           <p id="status" class="status-message" aria-live="polite"></p>
         </div>
 
+        <div class="panel-box">
+          <h2>레벨</h2>
+          <p id="level" class="level-value" aria-live="polite" aria-label="현재 레벨">1</p>
+          <p id="levelFeedback" class="level-feedback" hidden aria-live="polite"></p>
+          <p class="level-target-label">다음 레벨 목표 (누적 점수)</p>
+          <p id="levelTarget" class="level-target">누적 0 / 500점</p>
+        </div>
+
         <div class="panel-box preview-box">
           <h2>홀드</h2>
           <canvas id="holdCanvas" width="80" height="80" aria-label="홀드 블록 미리보기"></canvas>
@@ -51,6 +59,7 @@
             <li><kbd>Space</kbd> 하드 드롭 (+2점/칸)</li>
             <li><kbd>C</kbd> 또는 <kbd>Shift</kbd> 홀드</li>
             <li><kbd>P</kbd> 일시정지</li>
+            <li>레벨이 오를수록 블록이 빨라집니다</li>
           </ul>
         </div>
 
