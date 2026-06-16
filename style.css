@@ -85,6 +85,14 @@ body {
   color: #58a6ff;
 }
 
+.status-message {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #f85149;
+  min-height: 1.2em;
+}
+
 .button-group {
   display: flex;
   flex-direction: column;
