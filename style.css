@@ -17,7 +17,7 @@ body {
 
 .app {
   width: 100%;
-  max-width: 520px;
+  max-width: 560px;
 }
 
 .header {
@@ -92,7 +92,17 @@ body {
   gap: 16px;
   min-width: 160px;
   flex: 1;
-  max-width: 200px;
+  max-width: 220px;
+}
+
+.preview-box canvas {
+  display: block;
+  width: 100%;
+  max-width: 80px;
+  height: auto;
+  margin: 0 auto;
+  background: #010409;
+  border-radius: 4px;
 }
 
 .panel-box {
@@ -202,6 +212,10 @@ button:disabled {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
+}
+
+.touch-grid .touch-btn-wide {
+  grid-column: 1 / -1;
 }
 
 .touch-btn {

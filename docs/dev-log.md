@@ -107,3 +107,13 @@
 | 진행 | 시작 버튼 플레이 중 비활성화, 활성 블록 하이라이트 | script.js, style.css |
 | 리뷰 | Critical(P0) 없음, 보안 이슈 없음 | /emergency-checker, /security-review |
 | 리뷰 | 배포 전 push·Pages URL·수동 QA 필요 | /release-manager |
+
+### 2026-06-16 — [S5] SRS·하드드롭·홀드·다음 블록
+
+| 구분 | 내용 | 관련 파일/명령 |
+|------|------|----------------|
+| 진행 | SRS 벽 킥 테이블(I / JLSTZ) 및 rotationIndex 추적 | script.js |
+| 진행 | 하드 드롭(Space, +2점/칸), 홀드(C/Shift), 7-bag 랜덤 | script.js |
+| 진행 | 다음·홀드 미리보기 캔버스 패널 추가 | index.html, style.css, script.js |
+| 진행 | 조작법·기능 목록·Pages URL README 갱신 | README.md |
+| 진행 | Subagent 리뷰 개선사항 commit push 완료 | git |

@@ -4,6 +4,8 @@
 const COLS = 10;
 const ROWS = 20;
 const BLOCK_SIZE = 30;
+const PREVIEW_BLOCK_SIZE = 20;
+const PREVIEW_COLS = 4;
 const DROP_INTERVAL_MS = 500;
 
 const SCORE_SINGLE = 100;
@@ -11,8 +13,29 @@ const SCORE_DOUBLE = 300;
 const SCORE_TRIPLE = 500;
 const SCORE_TETRIS = 800;
 const SCORE_SOFT_DROP = 1;
+const SCORE_HARD_DROP = 2;
 
-const WALL_KICK_OFFSETS = [0, -1, 1, -2, 2];
+const SRS_KICKS_JLSTZ = {
+  "0-1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+  "1-0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+  "1-2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+  "2-1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+  "2-3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+  "3-2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+  "3-0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+  "0-3": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+};
+
+const SRS_KICKS_I = {
+  "0-1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+  "1-0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+  "1-2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
+  "2-1": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+  "2-3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+  "3-2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+  "3-0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+  "0-3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
+};
 
 const TETROMINOES = {
   I: { shape: [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]], color: "#00f0f0" },
@@ -28,6 +51,10 @@ const PIECE_TYPES = Object.keys(TETROMINOES);
 
 const canvas = document.getElementById("gameBoard");
 const ctx = canvas ? canvas.getContext("2d") : null;
+const nextCanvas = document.getElementById("nextCanvas");
+const nextCtx = nextCanvas ? nextCanvas.getContext("2d") : null;
+const holdCanvas = document.getElementById("holdCanvas");
+const holdCtx = holdCanvas ? holdCanvas.getContext("2d") : null;
 const scoreElement = document.getElementById("score");
 const statusElement = document.getElementById("status");
 const startBtn = document.getElementById("startBtn");
@@ -35,16 +62,27 @@ const restartBtn = document.getElementById("restartBtn");
 const boardArea = document.querySelector(".board-area");
 const boardOverlay = document.getElementById("boardOverlay");
 
-if (!canvas || !ctx || !scoreElement || !statusElement || !startBtn || !restartBtn || !boardArea) {
+if (
+  !canvas || !ctx || !nextCanvas || !nextCtx || !holdCanvas || !holdCtx ||
+  !scoreElement || !statusElement || !startBtn || !restartBtn || !boardArea
+) {
   console.error("필수 DOM 요소를 찾을 수 없습니다. index.html 구조를 확인하세요.");
   throw new Error("Tetris: required DOM elements missing");
 }
 
 canvas.width = COLS * BLOCK_SIZE;
 canvas.height = ROWS * BLOCK_SIZE;
+nextCanvas.width = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+nextCanvas.height = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+holdCanvas.width = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+holdCanvas.height = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
 
 let board = createEmptyBoard();
 let currentPiece = null;
+let nextPieceType = null;
+let holdPieceType = null;
+let canHold = true;
+let pieceBag = [];
 let score = 0;
 let dropTimer = null;
 let isPlaying = false;
@@ -55,16 +93,41 @@ function createEmptyBoard() {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 }
 
-function randomPieceType() {
-  return PIECE_TYPES[Math.floor(Math.random() * PIECE_TYPES.length)];
+function shuffleArray(items) {
+  const array = [...items];
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
 }
 
-function createPiece(type) {
-  const { shape, color } = TETROMINOES[type];
+function refillBag() {
+  pieceBag = shuffleArray(PIECE_TYPES);
+}
+
+function drawFromBag() {
+  if (pieceBag.length === 0) {
+    refillBag();
+  }
+  return pieceBag.pop();
+}
+
+function getShapeForType(type, rotationIndex = 0) {
+  let shape = TETROMINOES[type].shape.map((row) => [...row]);
+  for (let i = 0; i < rotationIndex; i++) {
+    shape = rotateMatrix(shape);
+  }
+  return shape;
+}
+
+function createPiece(type, rotationIndex = 0) {
+  const shape = getShapeForType(type, rotationIndex);
   return {
     type,
-    shape: shape.map((row) => [...row]),
-    color,
+    shape,
+    color: TETROMINOES[type].color,
+    rotationIndex,
     x: Math.floor((COLS - shape[0].length) / 2),
     y: 0,
   };
@@ -106,14 +169,37 @@ function rotateMatrix(matrix) {
   return rotated;
 }
 
+function getSrsKicks(type, fromRotation, toRotation) {
+  if (type === "O") {
+    return [[0, 0]];
+  }
+
+  const key = `${fromRotation}-${toRotation}`;
+  if (type === "I") {
+    return SRS_KICKS_I[key] || [[0, 0]];
+  }
+
+  return SRS_KICKS_JLSTZ[key] || [[0, 0]];
+}
+
+function ensureNextPieceType() {
+  if (!nextPieceType) {
+    nextPieceType = drawFromBag();
+  }
+}
+
 function spawnPiece() {
-  currentPiece = createPiece(randomPieceType());
+  ensureNextPieceType();
+  currentPiece = createPiece(nextPieceType);
+  nextPieceType = drawFromBag();
+  canHold = true;
 
   if (collides(currentPiece)) {
     endGame();
     return false;
   }
 
+  drawPreviews();
   return true;
 }
 
@@ -214,17 +300,68 @@ function rotatePiece() {
     return false;
   }
 
+  const fromRotation = currentPiece.rotationIndex;
+  const toRotation = (fromRotation + 1) % 4;
   const rotatedShape = rotateMatrix(currentPiece.shape);
+  const kicks = getSrsKicks(currentPiece.type, fromRotation, toRotation);
 
-  for (const offsetX of WALL_KICK_OFFSETS) {
-    if (!collides(currentPiece, offsetX, 0, rotatedShape)) {
-      currentPiece.x += offsetX;
+  for (const [kickX, kickY] of kicks) {
+    if (!collides(currentPiece, kickX, -kickY, rotatedShape)) {
+      currentPiece.x += kickX;
+      currentPiece.y -= kickY;
       currentPiece.shape = rotatedShape;
+      currentPiece.rotationIndex = toRotation;
       return true;
     }
   }
 
   return false;
+}
+
+function hardDrop() {
+  if (!currentPiece || !isPlaying || isPaused || isGameOver) {
+    return false;
+  }
+
+  let droppedCells = 0;
+  while (movePiece(0, 1)) {
+    droppedCells++;
+  }
+
+  if (droppedCells > 0) {
+    addDropScore(droppedCells * SCORE_HARD_DROP);
+  }
+
+  settlePiece();
+  return true;
+}
+
+function holdCurrentPiece() {
+  if (!currentPiece || !isPlaying || isPaused || isGameOver || !canHold) {
+    return false;
+  }
+
+  canHold = false;
+  const currentType = currentPiece.type;
+
+  if (holdPieceType === null) {
+    holdPieceType = currentType;
+    currentPiece = createPiece(nextPieceType);
+    nextPieceType = drawFromBag();
+  } else {
+    const swapType = holdPieceType;
+    holdPieceType = currentType;
+    currentPiece = createPiece(swapType);
+  }
+
+  if (collides(currentPiece)) {
+    endGame();
+    return false;
+  }
+
+  drawPreviews();
+  draw();
+  return true;
 }
 
 function settlePiece() {
@@ -258,12 +395,47 @@ function stopDropTimer() {
   }
 }
 
-function drawCell(x, y, color, highlight = false) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
-  ctx.strokeStyle = highlight ? "#ffffff" : "#21262d";
-  ctx.lineWidth = highlight ? 2 : 1;
-  ctx.strokeRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
+function drawCell(targetCtx, x, y, size, color, highlight = false) {
+  targetCtx.fillStyle = color;
+  targetCtx.fillRect(x, y, size, size);
+  targetCtx.strokeStyle = highlight ? "#ffffff" : "#21262d";
+  targetCtx.lineWidth = highlight ? 2 : 1;
+  targetCtx.strokeRect(x, y, size, size);
+}
+
+function drawShapeOnCanvas(targetCtx, type, size, highlight = false) {
+  targetCtx.clearRect(0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
+
+  if (!type) {
+    return;
+  }
+
+  const shape = getShapeForType(type, 0);
+  const offsetX = Math.floor((PREVIEW_COLS - shape[0].length) / 2);
+  const offsetY = Math.floor((PREVIEW_COLS - shape.length) / 2);
+  const color = TETROMINOES[type].color;
+
+  for (let row = 0; row < shape.length; row++) {
+    for (let col = 0; col < shape[row].length; col++) {
+      if (!shape[row][col]) {
+        continue;
+      }
+
+      drawCell(
+        targetCtx,
+        (offsetX + col) * size,
+        (offsetY + row) * size,
+        size,
+        color,
+        highlight
+      );
+    }
+  }
+}
+
+function drawPreviews() {
+  drawShapeOnCanvas(nextCtx, nextPieceType, PREVIEW_BLOCK_SIZE);
+  drawShapeOnCanvas(holdCtx, holdPieceType, PREVIEW_BLOCK_SIZE);
 }
 
 function drawBoard() {
@@ -272,7 +444,7 @@ function drawBoard() {
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
       const color = board[row][col] === 0 ? "#0d1117" : board[row][col];
-      drawCell(col * BLOCK_SIZE, row * BLOCK_SIZE, color);
+      drawCell(ctx, col * BLOCK_SIZE, row * BLOCK_SIZE, BLOCK_SIZE, color);
     }
   }
 }
@@ -290,7 +462,7 @@ function drawPiece() {
 
       const x = (currentPiece.x + col) * BLOCK_SIZE;
       const y = (currentPiece.y + row) * BLOCK_SIZE;
-      drawCell(x, y, currentPiece.color, true);
+      drawCell(ctx, x, y, BLOCK_SIZE, currentPiece.color, true);
     }
   }
 }
@@ -339,6 +511,10 @@ function resetGameState() {
   stopDropTimer();
   board = createEmptyBoard();
   currentPiece = null;
+  nextPieceType = null;
+  holdPieceType = null;
+  canHold = true;
+  pieceBag = [];
   score = 0;
   isPlaying = false;
   isPaused = false;
@@ -348,6 +524,7 @@ function resetGameState() {
   showBoardOverlay("시작 버튼을 누르세요");
   boardArea.classList.remove("paused");
   updateButtonState();
+  drawPreviews();
 }
 
 function startGame() {
@@ -356,6 +533,8 @@ function startGame() {
   updateStatus("");
   showBoardOverlay("");
   updateButtonState();
+
+  nextPieceType = drawFromBag();
 
   if (!spawnPiece()) {
     return;
@@ -403,11 +582,20 @@ function handleKeyDown(event) {
       }
       break;
     case "ArrowUp":
-    case "Space":
       event.preventDefault();
       if (rotatePiece()) {
         draw();
       }
+      break;
+    case "Space":
+      event.preventDefault();
+      hardDrop();
+      break;
+    case "KeyC":
+    case "ShiftLeft":
+    case "ShiftRight":
+      event.preventDefault();
+      holdCurrentPiece();
       break;
     default:
       break;
@@ -442,6 +630,12 @@ function handleTouchAction(action) {
       if (rotatePiece()) {
         draw();
       }
+      break;
+    case "drop":
+      hardDrop();
+      break;
+    case "hold":
+      holdCurrentPiece();
       break;
     default:
       break;
