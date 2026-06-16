@@ -1,6 +1,6 @@
 "use strict";
 
-// 게임 보드 크기 (가로 10칸, 세로 20칸)
+// --- 상수: 보드·낙하·레벨 ---
 const COLS = 10;
 const ROWS = 20;
 const BLOCK_SIZE = 30;
@@ -11,7 +11,9 @@ const DROP_INTERVAL_DECREASE_PER_LEVEL = 35;
 const MIN_DROP_INTERVAL_MS = 80;
 const LEVEL_TARGET_BASE = 500;
 const MAX_LEVEL = 20;
+const LEVEL_FEEDBACK_DURATION_MS = 2500;
 
+// --- 상수: 점수 ---
 const SCORE_SINGLE = 100;
 const SCORE_DOUBLE = 300;
 const SCORE_TRIPLE = 500;
@@ -19,8 +21,16 @@ const SCORE_TETRIS = 800;
 const SCORE_SOFT_DROP = 1;
 const SCORE_HARD_DROP = 2;
 
+const LINE_SCORES = {
+  1: SCORE_SINGLE,
+  2: SCORE_DOUBLE,
+  3: SCORE_TRIPLE,
+  4: SCORE_TETRIS,
+};
+
 const EMPTY_CELL_COLOR = "#0d1117";
 
+// --- 상수: SRS 벽 킥 ---
 const SRS_KICKS_JLSTZ = {
   "0-1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
   "1-0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
@@ -55,6 +65,18 @@ const TETROMINOES = {
 
 const PIECE_TYPES = Object.keys(TETROMINOES);
 
+const KEY_ACTION_MAP = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowDown: "down",
+  ArrowUp: "rotate",
+  Space: "drop",
+  KeyC: "hold",
+  ShiftLeft: "hold",
+  ShiftRight: "hold",
+};
+
+// --- DOM 참조 ---
 const canvas = document.getElementById("gameBoard");
 const ctx = canvas ? canvas.getContext("2d") : null;
 const nextCanvas = document.getElementById("nextCanvas");
@@ -64,35 +86,45 @@ const holdCtx = holdCanvas ? holdCanvas.getContext("2d") : null;
 const scoreElement = document.getElementById("score");
 const levelElement = document.getElementById("level");
 const levelTargetElement = document.getElementById("levelTarget");
+const levelFeedbackElement = document.getElementById("levelFeedback");
 const statusElement = document.getElementById("status");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 const boardArea = document.querySelector(".board-area");
 const boardOverlay = document.getElementById("boardOverlay");
-const levelFeedbackElement = document.getElementById("levelFeedback");
 
-if (
-  !canvas || !ctx || !nextCanvas || !nextCtx || !holdCanvas || !holdCtx ||
-  !scoreElement || !levelElement || !levelTargetElement || !levelFeedbackElement ||
-  !statusElement || !startBtn || !restartBtn || !boardArea
-) {
-  console.error("필수 DOM 요소를 찾을 수 없습니다. index.html 구조를 확인하세요.");
-  throw new Error("Tetris: required DOM elements missing");
+function assertRequiredDomElements() {
+  const required = [
+    canvas, ctx, nextCanvas, nextCtx, holdCanvas, holdCtx,
+    scoreElement, levelElement, levelTargetElement, levelFeedbackElement,
+    statusElement, startBtn, restartBtn, boardArea,
+  ];
+
+  if (required.some((element) => !element)) {
+    console.error("필수 DOM 요소를 찾을 수 없습니다. index.html 구조를 확인하세요.");
+    throw new Error("Tetris: required DOM elements missing");
+  }
 }
 
-canvas.width = COLS * BLOCK_SIZE;
-canvas.height = ROWS * BLOCK_SIZE;
-nextCanvas.width = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
-nextCanvas.height = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
-holdCanvas.width = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
-holdCanvas.height = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+function initializeCanvasSizes() {
+  canvas.width = COLS * BLOCK_SIZE;
+  canvas.height = ROWS * BLOCK_SIZE;
+  nextCanvas.width = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+  nextCanvas.height = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+  holdCanvas.width = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+  holdCanvas.height = PREVIEW_COLS * PREVIEW_BLOCK_SIZE;
+}
 
+assertRequiredDomElements();
+initializeCanvasSizes();
+
+// --- 게임 상태 ---
 let board = createEmptyBoard();
 let currentPiece = null;
 let nextPieceType = null;
 let holdPieceType = null;
 let canHold = true;
-let pieceBag = [];
+let sevenBagQueue = [];
 let score = 0;
 let level = 1;
 let dropTimer = null;
@@ -101,73 +133,72 @@ let isPaused = false;
 let isGameOver = false;
 let levelFeedbackTimer = null;
 
+// --- 보드 ---
 function createEmptyBoard() {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 }
 
-function shuffleArray(items) {
-  const array = [...items];
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
-  }
-  return array;
-}
-
-function refillBag() {
-  pieceBag = shuffleArray(PIECE_TYPES);
-}
-
-function drawFromBag() {
-  if (pieceBag.length === 0) {
-    refillBag();
-  }
-  return pieceBag.pop();
-}
-
-function getShapeForType(type, rotationIndex = 0) {
-  let shape = TETROMINOES[type].shape.map((row) => [...row]);
-  for (let i = 0; i < rotationIndex; i++) {
-    shape = rotateMatrix(shape);
-  }
-  return shape;
-}
-
-function createPiece(type, rotationIndex = 0) {
-  const shape = getShapeForType(type, rotationIndex);
-  return {
-    type,
-    shape,
-    color: TETROMINOES[type].color,
-    rotationIndex,
-    x: Math.floor((COLS - shape[0].length) / 2),
-    y: 0,
-  };
-}
-
-function collides(piece, offsetX = 0, offsetY = 0, shape = piece.shape) {
+function forEachOccupiedCell(shape, originX, originY, callback) {
   for (let row = 0; row < shape.length; row++) {
     for (let col = 0; col < shape[row].length; col++) {
       if (!shape[row][col]) {
         continue;
       }
 
-      const boardX = piece.x + col + offsetX;
-      const boardY = piece.y + row + offsetY;
-
-      if (boardX < 0 || boardX >= COLS || boardY >= ROWS) {
-        return true;
-      }
-
-      if (boardY >= 0 && board[boardY][boardX]) {
-        return true;
-      }
+      callback(originX + col, originY + row);
     }
+  }
+}
+
+function clearLines() {
+  let clearedLineCount = 0;
+
+  for (let row = ROWS - 1; row >= 0; row--) {
+    if (board[row].every((cell) => cell !== 0)) {
+      board.splice(row, 1);
+      board.unshift(Array(COLS).fill(0));
+      clearedLineCount++;
+      row++;
+    }
+  }
+
+  if (clearedLineCount > 0) {
+    return addLineScore(clearedLineCount);
   }
 
   return false;
 }
 
+function lockPiece() {
+  forEachOccupiedCell(currentPiece.shape, currentPiece.x, currentPiece.y, (boardX, boardY) => {
+    if (boardY >= 0) {
+      board[boardY][boardX] = currentPiece.color;
+    }
+  });
+}
+
+// --- 7-bag 랜덤 ---
+function shuffleArray(items) {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function refillSevenBag() {
+  sevenBagQueue = shuffleArray(PIECE_TYPES);
+}
+
+function drawFromBag() {
+  if (sevenBagQueue.length === 0) {
+    refillSevenBag();
+  }
+  return sevenBagQueue.pop();
+}
+
+// --- 피스 생성·충돌·회전 ---
 function rotateMatrix(matrix) {
   const size = matrix.length;
   const rotated = Array.from({ length: size }, () => Array(size).fill(0));
@@ -181,17 +212,54 @@ function rotateMatrix(matrix) {
   return rotated;
 }
 
-function getSrsKicks(type, fromRotation, toRotation) {
-  if (type === "O") {
+function getShapeForType(pieceType, rotationIndex = 0) {
+  let shape = TETROMINOES[pieceType].shape.map((row) => [...row]);
+  for (let i = 0; i < rotationIndex; i++) {
+    shape = rotateMatrix(shape);
+  }
+  return shape;
+}
+
+function createPiece(pieceType, rotationIndex = 0) {
+  const shape = getShapeForType(pieceType, rotationIndex);
+  return {
+    type: pieceType,
+    shape,
+    color: TETROMINOES[pieceType].color,
+    rotationIndex,
+    x: Math.floor((COLS - shape[0].length) / 2),
+    y: 0,
+  };
+}
+
+function collides(piece, offsetX = 0, offsetY = 0, shape = piece.shape) {
+  let hasCollision = false;
+
+  forEachOccupiedCell(shape, piece.x + offsetX, piece.y + offsetY, (boardX, boardY) => {
+    if (boardX < 0 || boardX >= COLS || boardY >= ROWS) {
+      hasCollision = true;
+      return;
+    }
+
+    if (boardY >= 0 && board[boardY][boardX]) {
+      hasCollision = true;
+    }
+  });
+
+  return hasCollision;
+}
+
+function getSrsKicks(pieceType, fromRotation, toRotation) {
+  if (pieceType === "O") {
     return [[0, 0]];
   }
 
-  const key = `${fromRotation}-${toRotation}`;
-  if (type === "I") {
-    return SRS_KICKS_I[key] || [[0, 0]];
+  const kickKey = `${fromRotation}-${toRotation}`;
+  if (pieceType === "I") {
+    return SRS_KICKS_I[kickKey] || [[0, 0]];
   }
 
-  return SRS_KICKS_JLSTZ[key] || [[0, 0]];
+  return SRS_KICKS_JLSTZ[kickKey] || [[0, 0]];
 }
 
 function ensureNextPieceType() {
@@ -215,42 +283,7 @@ function spawnPiece() {
   return true;
 }
 
-function lockPiece() {
-  for (let row = 0; row < currentPiece.shape.length; row++) {
-    for (let col = 0; col < currentPiece.shape[row].length; col++) {
-      if (!currentPiece.shape[row][col]) {
-        continue;
-      }
-
-      const boardY = currentPiece.y + row;
-      const boardX = currentPiece.x + col;
-
-      if (boardY >= 0) {
-        board[boardY][boardX] = currentPiece.color;
-      }
-    }
-  }
-}
-
-function clearLines() {
-  let clearedCount = 0;
-
-  for (let row = ROWS - 1; row >= 0; row--) {
-    if (board[row].every((cell) => cell !== 0)) {
-      board.splice(row, 1);
-      board.unshift(Array(COLS).fill(0));
-      clearedCount++;
-      row++;
-    }
-  }
-
-  if (clearedCount > 0) {
-    return addLineScore(clearedCount);
-  }
-
-  return false;
-}
-
+// --- 점수·레벨 ---
 function getCumulativeTargetForLevel(targetLevel) {
   return targetLevel * LEVEL_TARGET_BASE;
 }
@@ -284,32 +317,37 @@ function checkLevelUp() {
 }
 
 function addLineScore(lineCount) {
-  const lineScores = {
-    1: SCORE_SINGLE,
-    2: SCORE_DOUBLE,
-    3: SCORE_TRIPLE,
-    4: SCORE_TETRIS,
-  };
-
-  return addScore(lineScores[lineCount] || 0);
+  return addScore(LINE_SCORES[lineCount] || 0);
 }
 
 function addDropScore(points) {
-  if (addScore(points) && isPlaying && !isPaused && !isGameOver) {
+  if (addScore(points)) {
+    restartDropTimerAfterLevelUp();
+  }
+}
+
+function restartDropTimerAfterLevelUp() {
+  if (isGameSessionActive()) {
     startDropTimer();
   }
 }
 
-function canPlayerControl() {
-  return currentPiece && isPlaying && !isPaused && !isGameOver;
+// --- 게임 상태 판별 ---
+function isGameSessionActive() {
+  return isPlaying && !isPaused && !isGameOver;
 }
 
+function canPlayerControl() {
+  return currentPiece && isGameSessionActive();
+}
+
+// --- UI 갱신 ---
 function updateScoreDisplay() {
   scoreElement.textContent = String(score);
 }
 
 function updateLevelDisplay() {
-  const nextTarget = getCumulativeTargetForLevel(level);
+  const nextTargetScore = getCumulativeTargetForLevel(level);
   levelElement.textContent = String(level);
 
   if (level >= MAX_LEVEL) {
@@ -317,7 +355,18 @@ function updateLevelDisplay() {
     return;
   }
 
-  levelTargetElement.textContent = `누적 ${score} / ${nextTarget}점`;
+  levelTargetElement.textContent = `누적 ${score} / ${nextTargetScore}점`;
+}
+
+function clearLevelFeedback() {
+  if (levelFeedbackTimer !== null) {
+    clearTimeout(levelFeedbackTimer);
+    levelFeedbackTimer = null;
+  }
+
+  levelFeedbackElement.hidden = true;
+  levelFeedbackElement.textContent = "";
+  levelElement.classList.remove("level-up-flash");
 }
 
 function showLevelFeedback(fromLevel, toLevel) {
@@ -334,11 +383,8 @@ function showLevelFeedback(fromLevel, toLevel) {
   }
 
   levelFeedbackTimer = setTimeout(() => {
-    levelFeedbackElement.hidden = true;
-    levelFeedbackElement.textContent = "";
-    levelElement.classList.remove("level-up-flash");
-    levelFeedbackTimer = null;
-  }, 2500);
+    clearLevelFeedback();
+  }, LEVEL_FEEDBACK_DURATION_MS);
 }
 
 function updateStatus(message) {
@@ -364,14 +410,15 @@ function updateButtonState() {
   restartBtn.disabled = false;
 }
 
-function movePiece(dx, dy) {
+// --- 플레이어 입력·피스 조작 ---
+function movePiece(deltaX, deltaY) {
   if (!canPlayerControl()) {
     return false;
   }
 
-  if (!collides(currentPiece, dx, dy)) {
-    currentPiece.x += dx;
-    currentPiece.y += dy;
+  if (!collides(currentPiece, deltaX, deltaY)) {
+    currentPiece.x += deltaX;
+    currentPiece.y += deltaY;
     return true;
   }
 
@@ -386,9 +433,9 @@ function rotatePiece() {
   const fromRotation = currentPiece.rotationIndex;
   const toRotation = (fromRotation + 1) % 4;
   const rotatedShape = rotateMatrix(currentPiece.shape);
-  const kicks = getSrsKicks(currentPiece.type, fromRotation, toRotation);
+  const wallKicks = getSrsKicks(currentPiece.type, fromRotation, toRotation);
 
-  for (const [kickX, kickY] of kicks) {
+  for (const [kickX, kickY] of wallKicks) {
     if (!collides(currentPiece, kickX, -kickY, rotatedShape)) {
       currentPiece.x += kickX;
       currentPiece.y -= kickY;
@@ -406,13 +453,13 @@ function hardDrop() {
     return false;
   }
 
-  let droppedCells = 0;
+  let dropDistance = 0;
   while (movePiece(0, 1)) {
-    droppedCells++;
+    dropDistance++;
   }
 
-  if (droppedCells > 0) {
-    addDropScore(droppedCells * SCORE_HARD_DROP);
+  if (dropDistance > 0) {
+    addDropScore(dropDistance * SCORE_HARD_DROP);
   }
 
   settlePiece();
@@ -432,9 +479,9 @@ function holdCurrentPiece() {
     currentPiece = createPiece(nextPieceType);
     nextPieceType = drawFromBag();
   } else {
-    const swapType = holdPieceType;
+    const swappedType = holdPieceType;
     holdPieceType = currentType;
-    currentPiece = createPiece(swapType);
+    currentPiece = createPiece(swappedType);
   }
 
   if (collides(currentPiece)) {
@@ -447,23 +494,30 @@ function holdCurrentPiece() {
   return true;
 }
 
+function tryActionAndRedraw(actionFn) {
+  if (actionFn()) {
+    draw();
+  }
+}
+
 function settlePiece() {
   lockPiece();
-  const leveledUp = clearLines();
+  const didLevelUp = clearLines();
 
   if (!spawnPiece()) {
     return;
   }
 
-  if (leveledUp && isPlaying && !isPaused && !isGameOver) {
-    startDropTimer();
+  if (didLevelUp) {
+    restartDropTimerAfterLevelUp();
   }
 
   draw();
 }
 
+// --- 자동 낙하·타이머 ---
 function handleAutoDrop() {
-  if (!isPlaying || isPaused || isGameOver) {
+  if (!isGameSessionActive()) {
     return;
   }
 
@@ -486,42 +540,37 @@ function stopDropTimer() {
   }
 }
 
-function drawCell(targetCtx, x, y, size, color, highlight = false) {
+// --- 렌더링 ---
+function drawCell(targetCtx, x, y, cellSize, color, highlight = false) {
   targetCtx.fillStyle = color;
-  targetCtx.fillRect(x, y, size, size);
+  targetCtx.fillRect(x, y, cellSize, cellSize);
   targetCtx.strokeStyle = highlight ? "#ffffff" : "#21262d";
   targetCtx.lineWidth = highlight ? 2 : 1;
-  targetCtx.strokeRect(x, y, size, size);
+  targetCtx.strokeRect(x, y, cellSize, cellSize);
 }
 
-function drawShapeOnCanvas(targetCtx, type, size, highlight = false) {
+function drawShapeOnCanvas(targetCtx, pieceType, cellSize, highlight = false) {
   targetCtx.clearRect(0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
 
-  if (!type) {
+  if (!pieceType) {
     return;
   }
 
-  const shape = getShapeForType(type, 0);
+  const shape = getShapeForType(pieceType, 0);
   const offsetX = Math.floor((PREVIEW_COLS - shape[0].length) / 2);
   const offsetY = Math.floor((PREVIEW_COLS - shape.length) / 2);
-  const color = TETROMINOES[type].color;
+  const color = TETROMINOES[pieceType].color;
 
-  for (let row = 0; row < shape.length; row++) {
-    for (let col = 0; col < shape[row].length; col++) {
-      if (!shape[row][col]) {
-        continue;
-      }
-
-      drawCell(
-        targetCtx,
-        (offsetX + col) * size,
-        (offsetY + row) * size,
-        size,
-        color,
-        highlight
-      );
-    }
-  }
+  forEachOccupiedCell(shape, offsetX, offsetY, (cellX, cellY) => {
+    drawCell(
+      targetCtx,
+      cellX * cellSize,
+      cellY * cellSize,
+      cellSize,
+      color,
+      highlight
+    );
+  });
 }
 
 function drawPreviews() {
@@ -545,17 +594,16 @@ function drawPiece() {
     return;
   }
 
-  for (let row = 0; row < currentPiece.shape.length; row++) {
-    for (let col = 0; col < currentPiece.shape[row].length; col++) {
-      if (!currentPiece.shape[row][col]) {
-        continue;
-      }
-
-      const x = (currentPiece.x + col) * BLOCK_SIZE;
-      const y = (currentPiece.y + row) * BLOCK_SIZE;
-      drawCell(ctx, x, y, BLOCK_SIZE, currentPiece.color, true);
-    }
-  }
+  forEachOccupiedCell(currentPiece.shape, currentPiece.x, currentPiece.y, (boardX, boardY) => {
+    drawCell(
+      ctx,
+      boardX * BLOCK_SIZE,
+      boardY * BLOCK_SIZE,
+      BLOCK_SIZE,
+      currentPiece.color,
+      true
+    );
+  });
 }
 
 function draw() {
@@ -563,6 +611,7 @@ function draw() {
   drawPiece();
 }
 
+// --- 게임 흐름 ---
 function togglePause() {
   if (!isPlaying || isGameOver) {
     return;
@@ -605,19 +654,13 @@ function resetGameState() {
   nextPieceType = null;
   holdPieceType = null;
   canHold = true;
-  pieceBag = [];
+  sevenBagQueue = [];
   score = 0;
   level = 1;
   isPlaying = false;
   isPaused = false;
   isGameOver = false;
-  if (levelFeedbackTimer !== null) {
-    clearTimeout(levelFeedbackTimer);
-    levelFeedbackTimer = null;
-  }
-  levelFeedbackElement.hidden = true;
-  levelFeedbackElement.textContent = "";
-  levelElement.classList.remove("level-up-flash");
+  clearLevelFeedback();
   updateScoreDisplay();
   updateLevelDisplay();
   updateStatus("시작 버튼을 눌러 플레이하세요");
@@ -648,14 +691,10 @@ function startGame() {
 function performPlayerAction(action) {
   switch (action) {
     case "left":
-      if (movePiece(-1, 0)) {
-        draw();
-      }
+      tryActionAndRedraw(() => movePiece(-1, 0));
       break;
     case "right":
-      if (movePiece(1, 0)) {
-        draw();
-      }
+      tryActionAndRedraw(() => movePiece(1, 0));
       break;
     case "down":
       if (movePiece(0, 1)) {
@@ -666,9 +705,7 @@ function performPlayerAction(action) {
       }
       break;
     case "rotate":
-      if (rotatePiece()) {
-        draw();
-      }
+      tryActionAndRedraw(rotatePiece);
       break;
     case "drop":
       hardDrop();
@@ -691,22 +728,11 @@ function handleKeyDown(event) {
     return;
   }
 
-  if (!isPlaying || isGameOver || isPaused) {
+  if (!isGameSessionActive()) {
     return;
   }
 
-  const keyActionMap = {
-    ArrowLeft: "left",
-    ArrowRight: "right",
-    ArrowDown: "down",
-    ArrowUp: "rotate",
-    Space: "drop",
-    KeyC: "hold",
-    ShiftLeft: "hold",
-    ShiftRight: "hold",
-  };
-
-  const action = keyActionMap[event.code];
+  const action = KEY_ACTION_MAP[event.code];
   if (!action) {
     return;
   }
@@ -716,13 +742,14 @@ function handleKeyDown(event) {
 }
 
 function handleTouchAction(action) {
-  if (!isPlaying || isGameOver || isPaused) {
+  if (!isGameSessionActive()) {
     return;
   }
 
   performPlayerAction(action);
 }
 
+// --- 이벤트 등록·초기화 ---
 startBtn.addEventListener("click", startGame);
 restartBtn.addEventListener("click", startGame);
 document.addEventListener("keydown", handleKeyDown);

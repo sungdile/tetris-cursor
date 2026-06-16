@@ -126,3 +126,12 @@
 | 진행 | 레벨·목표 점수 UI 패널, 레벨업 피드백·플래시 애니메이션 | index.html, style.css |
 | 리뷰 | 8개 Subagent 병렬 리뷰 — P0 없음, UX·타이머 시점 개선 반영 | 전체 |
 | 진행 | settlePiece 후 타이머 재시작, 레벨업 메시지 레벨 패널로 분리 | script.js |
+
+### 2026-06-16 — [S5] refactor-safe 리팩토링
+
+| 구분 | 내용 | 관련 파일/명령 |
+|------|------|----------------|
+| 진행 | 섹션 주석·상수 분리(LINE_SCORES, KEY_ACTION_MAP) | script.js |
+| 진행 | forEachOccupiedCell, tryActionAndRedraw, isGameSessionActive 등 헬퍼 추출 | script.js |
+| 진행 | clearLevelFeedback, restartDropTimerAfterLevelUp, assertRequiredDomElements 분리 | script.js |
+| 진행 | pieceBag → sevenBagQueue 등 변수명 명확화 (동작 동일) | script.js |
