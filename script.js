@@ -1,3 +1,5 @@
+"use strict";
+
 // 게임 보드 크기 (가로 10칸, 세로 20칸)
 const COLS = 10;
 const ROWS = 20;
@@ -9,6 +11,8 @@ const SCORE_DOUBLE = 300;
 const SCORE_TRIPLE = 500;
 const SCORE_TETRIS = 800;
 const SCORE_SOFT_DROP = 1;
+
+const WALL_KICK_OFFSETS = [0, -1, 1, -2, 2];
 
 const TETROMINOES = {
   I: { shape: [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]], color: "#00f0f0" },
@@ -23,11 +27,21 @@ const TETROMINOES = {
 const PIECE_TYPES = Object.keys(TETROMINOES);
 
 const canvas = document.getElementById("gameBoard");
-const ctx = canvas.getContext("2d");
+const ctx = canvas ? canvas.getContext("2d") : null;
 const scoreElement = document.getElementById("score");
 const statusElement = document.getElementById("status");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
+const boardArea = document.querySelector(".board-area");
+const boardOverlay = document.getElementById("boardOverlay");
+
+if (!canvas || !ctx || !scoreElement || !statusElement || !startBtn || !restartBtn || !boardArea) {
+  console.error("필수 DOM 요소를 찾을 수 없습니다. index.html 구조를 확인하세요.");
+  throw new Error("Tetris: required DOM elements missing");
+}
+
+canvas.width = COLS * BLOCK_SIZE;
+canvas.height = ROWS * BLOCK_SIZE;
 
 let board = createEmptyBoard();
 let currentPiece = null;
@@ -162,6 +176,25 @@ function updateStatus(message) {
   statusElement.textContent = message;
 }
 
+function showBoardOverlay(message) {
+  if (!boardOverlay) {
+    return;
+  }
+
+  if (message) {
+    boardOverlay.textContent = message;
+    boardOverlay.hidden = false;
+  } else {
+    boardOverlay.textContent = "";
+    boardOverlay.hidden = true;
+  }
+}
+
+function updateButtonState() {
+  startBtn.disabled = isPlaying && !isGameOver;
+  restartBtn.disabled = false;
+}
+
 function movePiece(dx, dy) {
   if (!currentPiece || !isPlaying || isPaused || isGameOver) {
     return false;
@@ -183,9 +216,12 @@ function rotatePiece() {
 
   const rotatedShape = rotateMatrix(currentPiece.shape);
 
-  if (!collides(currentPiece, 0, 0, rotatedShape)) {
-    currentPiece.shape = rotatedShape;
-    return true;
+  for (const offsetX of WALL_KICK_OFFSETS) {
+    if (!collides(currentPiece, offsetX, 0, rotatedShape)) {
+      currentPiece.x += offsetX;
+      currentPiece.shape = rotatedShape;
+      return true;
+    }
   }
 
   return false;
@@ -194,12 +230,7 @@ function rotatePiece() {
 function settlePiece() {
   lockPiece();
   clearLines();
-
-  if (!spawnPiece()) {
-    draw();
-    return;
-  }
-
+  spawnPiece();
   draw();
 }
 
@@ -227,10 +258,11 @@ function stopDropTimer() {
   }
 }
 
-function drawCell(x, y, color) {
+function drawCell(x, y, color, highlight = false) {
   ctx.fillStyle = color;
   ctx.fillRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
-  ctx.strokeStyle = "#21262d";
+  ctx.strokeStyle = highlight ? "#ffffff" : "#21262d";
+  ctx.lineWidth = highlight ? 2 : 1;
   ctx.strokeRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
 }
 
@@ -258,7 +290,7 @@ function drawPiece() {
 
       const x = (currentPiece.x + col) * BLOCK_SIZE;
       const y = (currentPiece.y + row) * BLOCK_SIZE;
-      drawCell(x, y, currentPiece.color);
+      drawCell(x, y, currentPiece.color, true);
     }
   }
 }
@@ -278,9 +310,13 @@ function togglePause() {
   if (isPaused) {
     stopDropTimer();
     updateStatus("일시정지 — P로 재개");
+    showBoardOverlay("일시정지");
+    boardArea.classList.add("paused");
   } else {
     startDropTimer();
     updateStatus("");
+    showBoardOverlay("");
+    boardArea.classList.remove("paused");
   }
 
   draw();
@@ -293,6 +329,9 @@ function endGame() {
   currentPiece = null;
   stopDropTimer();
   updateStatus("게임 오버 — 재시작 버튼을 누르세요");
+  showBoardOverlay("게임 오버");
+  boardArea.classList.remove("paused");
+  updateButtonState();
   draw();
 }
 
@@ -305,24 +344,39 @@ function resetGameState() {
   isPaused = false;
   isGameOver = false;
   updateScoreDisplay();
-  updateStatus("");
+  updateStatus("시작 버튼을 눌러 플레이하세요");
+  showBoardOverlay("시작 버튼을 누르세요");
+  boardArea.classList.remove("paused");
+  updateButtonState();
 }
 
 function startGame() {
   resetGameState();
   isPlaying = true;
   updateStatus("");
+  showBoardOverlay("");
+  updateButtonState();
 
   if (!spawnPiece()) {
     return;
   }
 
   startDropTimer();
+  canvas.focus();
   draw();
 }
 
 function handleKeyDown(event) {
-  if (!isPlaying || isGameOver) {
+  if (event.code === "KeyP") {
+    if (!isPlaying || isGameOver) {
+      return;
+    }
+    event.preventDefault();
+    togglePause();
+    return;
+  }
+
+  if (!isPlaying || isGameOver || isPaused) {
     return;
   }
 
@@ -344,6 +398,8 @@ function handleKeyDown(event) {
       if (movePiece(0, 1)) {
         addDropScore(SCORE_SOFT_DROP);
         draw();
+      } else {
+        settlePiece();
       }
       break;
     case "ArrowUp":
@@ -353,9 +409,39 @@ function handleKeyDown(event) {
         draw();
       }
       break;
-    case "KeyP":
-      event.preventDefault();
-      togglePause();
+    default:
+      break;
+  }
+}
+
+function handleTouchAction(action) {
+  if (!isPlaying || isGameOver || isPaused) {
+    return;
+  }
+
+  switch (action) {
+    case "left":
+      if (movePiece(-1, 0)) {
+        draw();
+      }
+      break;
+    case "right":
+      if (movePiece(1, 0)) {
+        draw();
+      }
+      break;
+    case "down":
+      if (movePiece(0, 1)) {
+        addDropScore(SCORE_SOFT_DROP);
+        draw();
+      } else {
+        settlePiece();
+      }
+      break;
+    case "rotate":
+      if (rotatePiece()) {
+        draw();
+      }
       break;
     default:
       break;
@@ -365,6 +451,12 @@ function handleKeyDown(event) {
 startBtn.addEventListener("click", startGame);
 restartBtn.addEventListener("click", startGame);
 document.addEventListener("keydown", handleKeyDown);
+
+document.querySelectorAll("[data-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    handleTouchAction(button.dataset.action);
+  });
+});
 
 resetGameState();
 draw();

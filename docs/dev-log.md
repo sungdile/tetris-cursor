@@ -93,3 +93,17 @@
 | 구분 | 내용 | 관련 파일/명령 |
 |------|------|----------------|
 | 리뷰 | 일시정지 시 stopDropTimer, 재개 시 startDropTimer 적용 | script.js, /game-logic-reviewer |
+
+### 2026-06-16 — [S0-APPLY] 전체 Subagent 리뷰 반영
+
+| 구분 | 내용 | 관련 파일/명령 |
+|------|------|----------------|
+| 리뷰 | 8개 Subagent 병렬 리뷰 (code-reviewer, game-logic-reviewer, ui-ux-reviewer, qa-tester, release-manager, emergency-checker, bugbot, security-review) | 전체 |
+| 진행 | 소프트 드롭 착지 시 즉시 settlePiece, 벽 킥(±1,±2) 추가 | script.js |
+| 진행 | DOM null 가드, canvas 크기 JS 단일 소스, use strict | script.js |
+| 진행 | 보드 오버레이(시작/일시정지/게임오버), 일시정지 시 brightness | index.html, style.css, script.js |
+| 진행 | 접근성: focus-visible, score aria-live, canvas tabindex | index.html, style.css |
+| 진행 | 반응형 캔버스 max-width, 모바일 터치 조작 버튼 | index.html, style.css, script.js |
+| 진행 | 시작 버튼 플레이 중 비활성화, 활성 블록 하이라이트 | script.js, style.css |
+| 리뷰 | Critical(P0) 없음, 보안 이슈 없음 | /emergency-checker, /security-review |
+| 리뷰 | 배포 전 push·Pages URL·수동 QA 필요 | /release-manager |

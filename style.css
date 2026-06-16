@@ -45,6 +45,7 @@ body {
 }
 
 .board-area {
+  position: relative;
   background: #0d1117;
   border: 3px solid #30363d;
   border-radius: 8px;
@@ -52,9 +53,37 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
+.board-area.paused #gameBoard {
+  filter: brightness(0.55);
+}
+
 #gameBoard {
   display: block;
+  width: 100%;
+  max-width: 300px;
+  height: auto;
   background: #010409;
+}
+
+#gameBoard:focus-visible {
+  outline: 2px solid #58a6ff;
+  outline-offset: 2px;
+}
+
+.board-overlay {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(1, 4, 9, 0.75);
+  border-radius: 4px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f0f0f0;
+  text-align: center;
+  padding: 16px;
+  pointer-events: none;
 }
 
 .side-panel {
@@ -62,6 +91,8 @@ body {
   flex-direction: column;
   gap: 16px;
   min-width: 160px;
+  flex: 1;
+  max-width: 200px;
 }
 
 .panel-box {
@@ -111,20 +142,37 @@ button {
   transition: background 0.2s;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   background: #2ea043;
 }
 
-button:active {
+button:active:not(:disabled) {
   background: #1a7f37;
+}
+
+button:focus-visible {
+  outline: 2px solid #58a6ff;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 #restartBtn {
   background: #30363d;
 }
 
-#restartBtn:hover {
+#restartBtn:hover:not(:disabled) {
   background: #484f58;
+}
+
+.controls-hint {
+  font-size: 0.8rem;
+  color: #8b949e;
+  margin-bottom: 8px;
+  line-height: 1.4;
 }
 
 .controls-list {
@@ -144,4 +192,60 @@ button:active {
   border: 1px solid #484f58;
   border-radius: 4px;
   box-shadow: 0 1px 0 #484f58;
+}
+
+.touch-controls {
+  display: none;
+}
+
+.touch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.touch-btn {
+  min-height: 44px;
+  padding: 8px;
+  font-size: 1.25rem;
+  background: #21262d;
+}
+
+.touch-btn:hover:not(:disabled) {
+  background: #30363d;
+}
+
+.touch-btn-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 12px;
+    align-items: flex-start;
+  }
+
+  .header h1 {
+    font-size: 1.5rem;
+  }
+
+  .game-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .side-panel {
+    width: 100%;
+    max-width: 300px;
+  }
+
+  .touch-controls {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
 }
