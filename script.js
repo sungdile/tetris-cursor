@@ -15,6 +15,8 @@ const SCORE_TETRIS = 800;
 const SCORE_SOFT_DROP = 1;
 const SCORE_HARD_DROP = 2;
 
+const EMPTY_CELL_COLOR = "#0d1117";
+
 const SRS_KICKS_JLSTZ = {
   "0-1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
   "1-0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
@@ -237,6 +239,11 @@ function clearLines() {
   }
 }
 
+function addScore(points) {
+  score += points;
+  updateScoreDisplay();
+}
+
 function addLineScore(lineCount) {
   const lineScores = {
     1: SCORE_SINGLE,
@@ -245,13 +252,15 @@ function addLineScore(lineCount) {
     4: SCORE_TETRIS,
   };
 
-  score += lineScores[lineCount] || 0;
-  updateScoreDisplay();
+  addScore(lineScores[lineCount] || 0);
 }
 
 function addDropScore(points) {
-  score += points;
-  updateScoreDisplay();
+  addScore(points);
+}
+
+function canPlayerControl() {
+  return currentPiece && isPlaying && !isPaused && !isGameOver;
 }
 
 function updateScoreDisplay() {
@@ -282,7 +291,7 @@ function updateButtonState() {
 }
 
 function movePiece(dx, dy) {
-  if (!currentPiece || !isPlaying || isPaused || isGameOver) {
+  if (!canPlayerControl()) {
     return false;
   }
 
@@ -296,7 +305,7 @@ function movePiece(dx, dy) {
 }
 
 function rotatePiece() {
-  if (!currentPiece || !isPlaying || isPaused || isGameOver) {
+  if (!canPlayerControl()) {
     return false;
   }
 
@@ -319,7 +328,7 @@ function rotatePiece() {
 }
 
 function hardDrop() {
-  if (!currentPiece || !isPlaying || isPaused || isGameOver) {
+  if (!canPlayerControl()) {
     return false;
   }
 
@@ -337,7 +346,7 @@ function hardDrop() {
 }
 
 function holdCurrentPiece() {
-  if (!currentPiece || !isPlaying || isPaused || isGameOver || !canHold) {
+  if (!canPlayerControl() || !canHold) {
     return false;
   }
 
@@ -371,7 +380,7 @@ function settlePiece() {
   draw();
 }
 
-function tick() {
+function handleAutoDrop() {
   if (!isPlaying || isPaused || isGameOver) {
     return;
   }
@@ -385,7 +394,7 @@ function tick() {
 
 function startDropTimer() {
   stopDropTimer();
-  dropTimer = setInterval(tick, DROP_INTERVAL_MS);
+  dropTimer = setInterval(handleAutoDrop, DROP_INTERVAL_MS);
 }
 
 function stopDropTimer() {
@@ -443,7 +452,7 @@ function drawBoard() {
 
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
-      const color = board[row][col] === 0 ? "#0d1117" : board[row][col];
+      const color = board[row][col] === 0 ? EMPTY_CELL_COLOR : board[row][col];
       drawCell(ctx, col * BLOCK_SIZE, row * BLOCK_SIZE, BLOCK_SIZE, color);
     }
   }
@@ -545,68 +554,7 @@ function startGame() {
   draw();
 }
 
-function handleKeyDown(event) {
-  if (event.code === "KeyP") {
-    if (!isPlaying || isGameOver) {
-      return;
-    }
-    event.preventDefault();
-    togglePause();
-    return;
-  }
-
-  if (!isPlaying || isGameOver || isPaused) {
-    return;
-  }
-
-  switch (event.code) {
-    case "ArrowLeft":
-      event.preventDefault();
-      if (movePiece(-1, 0)) {
-        draw();
-      }
-      break;
-    case "ArrowRight":
-      event.preventDefault();
-      if (movePiece(1, 0)) {
-        draw();
-      }
-      break;
-    case "ArrowDown":
-      event.preventDefault();
-      if (movePiece(0, 1)) {
-        addDropScore(SCORE_SOFT_DROP);
-        draw();
-      } else {
-        settlePiece();
-      }
-      break;
-    case "ArrowUp":
-      event.preventDefault();
-      if (rotatePiece()) {
-        draw();
-      }
-      break;
-    case "Space":
-      event.preventDefault();
-      hardDrop();
-      break;
-    case "KeyC":
-    case "ShiftLeft":
-    case "ShiftRight":
-      event.preventDefault();
-      holdCurrentPiece();
-      break;
-    default:
-      break;
-  }
-}
-
-function handleTouchAction(action) {
-  if (!isPlaying || isGameOver || isPaused) {
-    return;
-  }
-
+function performPlayerAction(action) {
   switch (action) {
     case "left":
       if (movePiece(-1, 0)) {
@@ -640,6 +588,48 @@ function handleTouchAction(action) {
     default:
       break;
   }
+}
+
+function handleKeyDown(event) {
+  if (event.code === "KeyP") {
+    if (!isPlaying || isGameOver) {
+      return;
+    }
+    event.preventDefault();
+    togglePause();
+    return;
+  }
+
+  if (!isPlaying || isGameOver || isPaused) {
+    return;
+  }
+
+  const keyActionMap = {
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    ArrowDown: "down",
+    ArrowUp: "rotate",
+    Space: "drop",
+    KeyC: "hold",
+    ShiftLeft: "hold",
+    ShiftRight: "hold",
+  };
+
+  const action = keyActionMap[event.code];
+  if (!action) {
+    return;
+  }
+
+  event.preventDefault();
+  performPlayerAction(action);
+}
+
+function handleTouchAction(action) {
+  if (!isPlaying || isGameOver || isPaused) {
+    return;
+  }
+
+  performPlayerAction(action);
 }
 
 startBtn.addEventListener("click", startGame);
